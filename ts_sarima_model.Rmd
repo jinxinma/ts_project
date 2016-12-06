@@ -3,8 +3,7 @@ title: "R Notebook"
 output: html_notebook
 ---
 
-## load in necessary libraries
-```{r}
+```{r, echo=FALSE}
 library(tseries)
 library(lawstat)
 library(forecast)
@@ -12,36 +11,266 @@ library(hydroGOF)
 library(vars)
 ```
 
-
-## Read in the dataset
+## 1. Data Exploration
+### Read in the dataset
 ```{r}
+setwd("~/Dropbox/MSAN/module2/msan604/group_project")
 train <- read.csv('train.csv')[-1] # use -1 index to take out the month variable because
                                    # we will recreate the month variable using ts() function
 test <- read.csv('test.csv')[-1]
 plot(train)
 cor(train)
 ```
-Summary: from the plot and the correlation matrix, unemployment rate and house price index are most correlated to bankruptcy. However, population and house price index are are highly correlated with each other. This suggests that in the modeling part, we should use either of the external variable. For now, Let's focus on the bankcruptcy variable only.
+Summary: from the plot and the correlation matrix, unemployment rate and house price index are most correlated to bankruptcy. However, population and house price index are are highly correlated with each other. This suggests that in the modeling part, we should use either of the external variable. For now, Let's focus on the bankruptcy variable only.
 
-## Use only the bankruptcy variable and split the training set into a training set and a cross-validation set
+### Create training sets for each of the variable except for population, because population exhibits an upward trend that doesn't contribute to explaining the variance in bankruptcy
 ```{r}
 bank <- train[3]
-bank_train <- ts(bank[1:240, ], start = c(1987, 1), frequency = 12)
-bank_cross_val <- ts(bank[241:288, ], start = c(2007, 1), frequency = 12)
+hpi <- train[4]
+unemp <- train[1]
+
+hpi2 <- test[3]
+unemp2 <- test[1]
+
+bank_train <- ts(bank, start = c(1987, 1), frequency = 12)
+hpi_train <- ts(hpi, start = c(1987, 1), frequency = 12)
+unemp_train <- ts(unemp, start = c(1987, 1), frequency = 12)
+
+hpi_test <- ts(hpi2, start = c(2011, 1), frequency = 12)
+unemp_test <- ts(unemp2, start = c(2011, 1), frequency = 12)
+
+hpi_unemp_train <- ts(data.frame(hpi, unemp), start = c(1987, 1), frequency = 12)
+plot(bank_train)
+plot(hpi_train)
+plot(unemp_train)
 ```
 
 
-## plot the raw data as well as acf and pacf plots
+### plot the raw data as well as acf and pacf plots
 ```{r}
+par(mfrow=c(3,1))
 plot(bank_train)
 acf(bank_train, lag.max = 48)
 pacf(bank_train, lag.max = 48)
 ```
 Summary: From the ACF plot and the PACF plot there is surely trend in the time series. There seems to be seasonality, but it's not significant.
 
-## use ndiff and ndiffs to automatically check the number of ordinary and seasonal differencing we should take
+### Use ndiff and ndiffs to automatically check the number of ordinary and seasonal differencing
 ```{r}
 ndiffs(bank_train, max.d = 3)
 nsdiffs(bank_train, m = 12, max.D = 2)
+adf.test(bank_train)
 ```
 Summary: Seems that we dont need seasonal differencing, however it's good to try both.
+
+### Use both ordinary and seasonal differencing and plot ACF and PACF
+```{r}
+# We need to use order 1 ordinary difference
+bank_train.diff <- diff(bank_train)
+bank_train.diff12 <- diff(bank_train.diff, lag = 12)
+adf.test(bank_train.diff)
+adf.test(bank_train.diff12)
+
+plot(bank_train.diff)
+acf(bank_train.diff, lag.max = 48)
+pacf(bank_train.diff, lag.max = 48)
+
+plot(bank_train.diff12)
+acf(bank_train.diff12, lag.max = 48)
+pacf(bank_train.diff12, lag.max = 48)
+
+
+# We need to use order 1 ordinary difference
+bank_train.diff <- diff(log(bank_train))
+bank_train.diff12 <- diff(bank_train.diff, lag = 12)
+adf.test(bank_train.diff)
+adf.test(bank_train.diff12)
+
+plot(bank_train.diff)
+acf(bank_train.diff, lag.max = 48)
+pacf(bank_train.diff, lag.max = 48)
+
+plot(bank_train.diff12)
+acf(bank_train.diff12, lag.max = 48)
+pacf(bank_train.diff12, lag.max = 48)
+```
+Summary: After differencing, the result of the Dick-Fuller test indicates that the trend has been removed. Based on the ACF and PACF plots for the ordinarily differenced data, it seems that p = q = 2, P = 1, Q = 2. Also we choose d = 1, D = 0 or 1. Next, let's try out the combinations of the parameters and choose an optimal model.
+
+## 2. Modeling
+### 2.1 Models without Exogenous Variables
+#### Train the model not using seasonal differencing
+```{r}
+m1 <- arima(log(bank_train), order = c(0,1,1), seasonal = list(order = c(1,0,2), period = 12), method='ML')
+m2 <- arima(log(bank_train), order = c(0,1,0), seasonal = list(order = c(1,0,2), period = 12), method='ML')
+m3 <- arima(log(bank_train), order = c(0,1,0), seasonal = list(order = c(1,0,2), period = 12), method='ML')
+m4 <- arima(log(bank_train), order = c(0,1,0), seasonal = list(order = c(2,0,2), period = 12), method='ML')
+m5 <- arima(log(bank_train), order = c(0,1,1), seasonal = list(order = c(1,0,1), period = 12), method='ML')
+m6 <- arima(log(bank_train), order = c(0,1,0), seasonal = list(order = c(1,0,1), period = 12), method='ML')
+m7 <- arima(log(bank_train), order = c(1,1,1), seasonal = list(order = c(1,0,1), period = 12), method='ML')
+m8 <- arima(log(bank_train), order = c(1,1,1), seasonal = list(order = c(1,0,2), period = 12), method='ML')
+m9 <- arima(log(bank_train), order = c(1,1,1), seasonal = list(order = c(2,0,2), period = 12), method='ML')
+m10 <- arima(log(bank_train), order = c(1,1,2), seasonal = list(order = c(1,0,1), period = 12), method='ML')
+m11 <- arima(log(bank_train), order = c(1,1,1), seasonal = list(order = c(1,0,2), period = 12), method='ML')
+m12 <- arima(log(bank_train), order = c(1,1,0), seasonal = list(order = c(1,0,2), period = 12), method='ML')
+m13 <- arima(log(bank_train), order = c(1,1,1), seasonal = list(order = c(1,0,1), period = 12), method='ML')
+m14 <- arima(log(bank_train), order = c(1,1,0), seasonal = list(order = c(1,0,1), period = 12), method='ML')
+m15 <- arima(log(bank_train), order = c(2,1,2), seasonal = list(order = c(1,0,1), period = 12), method='ML')
+m16 <- arima(log(bank_train), order = c(2,1,2), seasonal = list(order = c(2,0,1), period = 12), method='ML')
+m17 <- arima(log(bank_train), order = c(2,1,2), seasonal = list(order = c(2,0,2), period = 12), method='ML')
+m18 <- arima(log(bank_train), order = c(2,1,0), seasonal = list(order = c(1,0,2), period = 12), method='ML')
+m19 <- arima(log(bank_train), order = c(2,1,1), seasonal = list(order = c(1,0,1), period = 12), method='ML')
+m20 <- arima(log(bank_train), order = c(2,1,0), seasonal = list(order = c(1,0,1), period = 12), method='ML')
+m21 <- arima(log(bank_train), order = c(2,1,1), seasonal = list(order = c(1,0,2), period = 12), method='ML')
+m22 <- arima(log(bank_train), order = c(2,1,2), seasonal = list(order = c(1,0,2), period = 12), method='ML')
+sigma2<-c(m1$sigma2,m2$sigma2,m3$sigma2,m4$sigma2,m5$sigma2,m6$sigma2,m7$sigma2,m8$sigma2,m9$sigma2,m10$sigma2,m11$sigma2,m12$sigma2,m13$sigma2,m14$sigma2,m15$sigma2,m16$sigma2, m17$sigma2,m18$sigma2,m19$sigma2, m20$sigma2,m21$sigma2,m22$sigma2)
+loglik<-c(m1$loglik,m2$loglik,m3$loglik,m4$loglik,m5$loglik,m6$loglik,m7$loglik,m8$loglik,m9$loglik,m10$loglik,m11$loglik,m12$loglik,m13$loglik,m14$loglik,m15$loglik,m16$loglik, m17$loglik,m18$loglik,m19$loglik, m20$loglik,m21$loglik,m22$loglik)
+AIC<-c(m1$aic,m2$aic,m3$aic,m4$aic,m5$aic,m6$aic,m7$aic,m8$aic,m9$aic,m10$aic,m11$aic,m12$aic,m13$aic,m14$aic,m15$aic,m16$aic, m17$aic,m18$aic,m19$aic, m20$aic,m21$aic,m22$aic)
+d <- data.frame(sigma2,loglik,AIC)
+d
+```
+
+#### Train the model using seasonal differencing
+```{r}
+m1 <- arima(log(bank_train), order = c(0,1,1), seasonal = list(order = c(1,1,2), period = 12))
+m2 <- arima(log(bank_train), order = c(0,1,0), seasonal = list(order = c(1,1,2), period = 12))
+m3 <- arima(log(bank_train), order = c(0,1,0), seasonal = list(order = c(1,1,2), period = 12))
+m4 <- arima(log(bank_train), order = c(0,1,0), seasonal = list(order = c(2,1,2), period = 12))
+m5 <- arima(log(bank_train), order = c(0,1,1), seasonal = list(order = c(1,1,1), period = 12))
+m6 <- arima(log(bank_train), order = c(0,1,0), seasonal = list(order = c(1,1,1), period = 12))
+m7 <- arima(log(bank_train), order = c(1,1,1), seasonal = list(order = c(1,1,1), period = 12))
+m8 <- arima(log(bank_train), order = c(1,1,1), seasonal = list(order = c(1,1,2), period = 12))
+m9 <- arima(log(bank_train), order = c(1,1,1), seasonal = list(order = c(2,0,2), period = 12))
+m10 <- arima(log(bank_train), order = c(1,1,2), seasonal = list(order = c(1,1,1), period = 12))
+m11 <- arima(log(bank_train), order = c(1,1,1), seasonal = list(order = c(1,1,2), period = 12))
+m12 <- arima(log(bank_train), order = c(1,1,0), seasonal = list(order = c(1,1,2), period = 12))
+m13 <- arima(log(bank_train), order = c(1,1,1), seasonal = list(order = c(1,1,1), period = 12))
+m14 <- arima(log(bank_train), order = c(1,1,0), seasonal = list(order = c(1,1,1), period = 12))
+m15 <- arima(log(bank_train), order = c(2,1,2), seasonal = list(order = c(1,1,1), period = 12))
+m16 <- arima(log(bank_train), order = c(2,1,2), seasonal = list(order = c(2,0,1), period = 12))
+m17 <- arima(log(bank_train), order = c(2,1,2), seasonal = list(order = c(2,1,2), period = 12))
+m18 <- arima(log(bank_train), order = c(2,1,0), seasonal = list(order = c(1,1,2), period = 12))
+m19 <- arima(log(bank_train), order = c(2,1,1), seasonal = list(order = c(1,1,1), period = 12))
+m20 <- arima(log(bank_train), order = c(2,1,0), seasonal = list(order = c(1,1,1), period = 12))
+m21 <- arima(log(bank_train), order = c(2,1,1), seasonal = list(order = c(1,1,2), period = 12))
+m22 <- arima(log(bank_train), order = c(2,1,2), seasonal = list(order = c(1,0,2), period = 12))
+sigma2<-c(m1$sigma2,m2$sigma2,m3$sigma2,m4$sigma2,m5$sigma2,m6$sigma2,m7$sigma2,m8$sigma2,m9$sigma2,m10$sigma2,m11$sigma2,m12$sigma2,m13$sigma2,m14$sigma2,m15$sigma2,m16$sigma2, m17$sigma2,m18$sigma2,m19$sigma2, m20$sigma2,m21$sigma2,m22$sigma2)
+loglik<-c(m1$loglik,m2$loglik,m3$loglik,m4$loglik,m5$loglik,m6$loglik,m7$loglik,m8$loglik,m9$loglik,m10$loglik,m11$loglik,m12$loglik,m13$loglik,m14$loglik,m15$loglik,m16$loglik, m17$loglik,m18$loglik,m19$loglik, m20$loglik,m21$loglik,m22$loglik)
+AIC<-c(m1$aic,m2$aic,m3$aic,m4$aic,m5$aic,m6$aic,m7$aic,m8$aic,m9$aic,m10$aic,m11$aic,m12$aic,m13$aic,m14$aic,m15$aic,m16$aic, m17$aic,m18$aic,m19$aic, m20$aic,m21$aic,m22$aic)
+d <- data.frame(sigma2,loglik,AIC)
+d
+```
+
+### 2.2 Models with House Price Index as exogenous variable without Seasonal Differencing
+```{r}
+m1 <- arima(log(bank_train), order = c(0,1,1), seasonal = list(order = c(1,0,2), period = 12),  xreg = log(hpi_train))
+m2 <- arima(log(bank_train), order = c(0,1,0), seasonal = list(order = c(1,0,2), period = 12),  xreg = log(hpi_train))
+m3 <- arima(log(bank_train), order = c(0,1,0), seasonal = list(order = c(1,0,2), period = 12),  xreg = log(hpi_train))
+m4 <- arima(log(bank_train), order = c(0,1,0), seasonal = list(order = c(2,0,2), period = 12),  xreg = log(hpi_train))
+m5 <- arima(log(bank_train), order = c(0,1,1), seasonal = list(order = c(1,0,1), period = 12),  xreg = log(hpi_train))
+m6 <- arima(log(bank_train), order = c(0,1,0), seasonal = list(order = c(1,0,1), period = 12),  xreg = log(hpi_train))
+m7 <- arima(log(bank_train), order = c(1,1,1), seasonal = list(order = c(1,0,1), period = 12),  xreg = log(hpi_train))
+m8 <- arima(log(bank_train), order = c(1,1,1), seasonal = list(order = c(1,0,2), period = 12),  xreg = log(hpi_train))
+m9 <- arima(log(bank_train), order = c(1,1,1), seasonal = list(order = c(2,0,2), period = 12),  xreg = log(hpi_train))
+m10 <- arima(log(bank_train), order = c(1,1,2), seasonal = list(order = c(1,0,1), period = 12),  xreg = log(hpi_train))
+m11 <- arima(log(bank_train), order = c(1,1,1), seasonal = list(order = c(1,0,2), period = 12),  xreg = log(hpi_train))
+m12 <- arima(log(bank_train), order = c(1,1,0), seasonal = list(order = c(1,0,2), period = 12),  xreg = log(hpi_train))
+m13 <- arima(log(bank_train), order = c(1,1,1), seasonal = list(order = c(1,0,1), period = 12),  xreg = log(hpi_train))
+m14 <- arima(log(bank_train), order = c(1,1,0), seasonal = list(order = c(1,0,1), period = 12),  xreg = log(hpi_train))
+m15 <- arima(log(bank_train), order = c(2,1,2), seasonal = list(order = c(1,0,1), period = 12),  xreg = log(hpi_train))
+m16 <- arima(log(bank_train), order = c(2,1,2), seasonal = list(order = c(2,0,1), period = 12),  xreg = log(hpi_train))
+m17 <- arima(log(bank_train), order = c(2,1,2), seasonal = list(order = c(2,0,2), period = 12),  xreg = log(hpi_train))
+m18 <- arima(log(bank_train), order = c(2,1,0), seasonal = list(order = c(1,0,2), period = 12),  xreg = log(hpi_train))
+m19 <- arima(log(bank_train), order = c(2,1,1), seasonal = list(order = c(1,0,1), period = 12),  xreg = log(hpi_train))
+m20 <- arima(log(bank_train), order = c(2,1,0), seasonal = list(order = c(1,0,1), period = 12),  xreg = log(hpi_train))
+m21 <- arima(log(bank_train), order = c(2,1,1), seasonal = list(order = c(1,0,2), period = 12),  xreg = log(hpi_train))
+m22 <- arima(log(bank_train), order = c(2,1,2), seasonal = list(order = c(1,0,2), period = 12),  xreg = log(hpi_train))
+sigma2<-c(m1$sigma2,m2$sigma2,m3$sigma2,m4$sigma2,m5$sigma2,m6$sigma2,m7$sigma2,m8$sigma2,m9$sigma2,m10$sigma2,m11$sigma2,m12$sigma2,m13$sigma2,m14$sigma2,m15$sigma2,m16$sigma2, m17$sigma2,m18$sigma2,m19$sigma2, m20$sigma2,m21$sigma2,m22$sigma2)
+loglik<-c(m1$loglik,m2$loglik,m3$loglik,m4$loglik,m5$loglik,m6$loglik,m7$loglik,m8$loglik,m9$loglik,m10$loglik,m11$loglik,m12$loglik,m13$loglik,m14$loglik,m15$loglik,m16$loglik, m17$loglik,m18$loglik,m19$loglik, m20$loglik,m21$loglik,m22$loglik)
+AIC<-c(m1$aic,m2$aic,m3$aic,m4$aic,m5$aic,m6$aic,m7$aic,m8$aic,m9$aic,m10$aic,m11$aic,m12$aic,m13$aic,m14$aic,m15$aic,m16$aic, m17$aic,m18$aic,m19$aic, m20$aic,m21$aic,m22$aic)
+d <- data.frame(sigma2,loglik,AIC)
+d
+```
+
+### 2.3 Models with Umemployment Rate as Exogenous Variable without Seasonal Differencing
+```{r}
+m1 <- arima(log(bank_train), order = c(0,1,1), seasonal = list(order = c(1,0,2), period = 12), xreg = log(unemp_train))
+m2 <- arima(log(bank_train), order = c(0,1,0), seasonal = list(order = c(1,0,2), period = 12), xreg = log(unemp_train))
+m3 <- arima(log(bank_train), order = c(0,1,0), seasonal = list(order = c(1,0,2), period = 12), xreg = log(unemp_train))
+m4 <- arima(log(bank_train), order = c(0,1,0), seasonal = list(order = c(2,0,2), period = 12), xreg = log(unemp_train))
+m5 <- arima(log(bank_train), order = c(0,1,1), seasonal = list(order = c(1,0,1), period = 12), xreg = log(unemp_train))
+m6 <- arima(log(bank_train), order = c(0,1,0), seasonal = list(order = c(1,0,1), period = 12), xreg = log(unemp_train))
+m7 <- arima(log(bank_train), order = c(1,1,1), seasonal = list(order = c(1,0,1), period = 12), xreg = log(unemp_train))
+m8 <- arima(log(bank_train), order = c(1,1,1), seasonal = list(order = c(1,0,2), period = 12), xreg = log(unemp_train))
+m9 <- arima(log(bank_train), order = c(1,1,1), seasonal = list(order = c(2,0,2), period = 12), xreg = log(unemp_train))
+m10 <- arima(log(bank_train), order = c(1,1,2), seasonal = list(order = c(1,0,1), period = 12), xreg = log(unemp_train))
+m11 <- arima(log(bank_train), order = c(1,1,1), seasonal = list(order = c(1,0,2), period = 12), xreg = log(unemp_train))
+m12 <- arima(log(bank_train), order = c(1,1,0), seasonal = list(order = c(1,0,2), period = 12), xreg = log(unemp_train))
+m13 <- arima(log(bank_train), order = c(1,1,1), seasonal = list(order = c(1,0,1), period = 12), xreg = log(unemp_train))
+m14 <- arima(log(bank_train), order = c(1,1,0), seasonal = list(order = c(1,0,1), period = 12), xreg = log(unemp_train))
+m15 <- arima(log(bank_train), order = c(2,1,2), seasonal = list(order = c(1,0,1), period = 12), xreg = log(unemp_train))
+m16 <- arima(log(bank_train), order = c(2,1,2), seasonal = list(order = c(2,0,1), period = 12), xreg = log(unemp_train))
+m17 <- arima(log(bank_train), order = c(2,1,2), seasonal = list(order = c(2,0,2), period = 12), xreg = log(unemp_train))
+m18 <- arima(log(bank_train), order = c(2,1,0), seasonal = list(order = c(1,0,2), period = 12), xreg = log(unemp_train))
+m19 <- arima(log(bank_train), order = c(2,1,1), seasonal = list(order = c(1,0,1), period = 12), xreg = log(unemp_train))
+m20 <- arima(log(bank_train), order = c(2,1,0), seasonal = list(order = c(1,0,1), period = 12), xreg = log(unemp_train))
+m21 <- arima(log(bank_train), order = c(2,1,1), seasonal = list(order = c(1,0,2), period = 12), xreg = log(unemp_train))
+m22 <- arima(log(bank_train), order = c(2,1,2), seasonal = list(order = c(1,0,2), period = 12), xreg = log(unemp_train))
+sigma2<-c(m1$sigma2,m2$sigma2,m3$sigma2,m4$sigma2,m5$sigma2,m6$sigma2,m7$sigma2,m8$sigma2,m9$sigma2,m10$sigma2,m11$sigma2,m12$sigma2,m13$sigma2,m14$sigma2,m15$sigma2,m16$sigma2, m17$sigma2,m18$sigma2,m19$sigma2, m20$sigma2,m21$sigma2,m22$sigma2)
+loglik<-c(m1$loglik,m2$loglik,m3$loglik,m4$loglik,m5$loglik,m6$loglik,m7$loglik,m8$loglik,m9$loglik,m10$loglik,m11$loglik,m12$loglik,m13$loglik,m14$loglik,m15$loglik,m16$loglik, m17$loglik,m18$loglik,m19$loglik, m20$loglik,m21$loglik,m22$loglik)
+AIC<-c(m1$aic,m2$aic,m3$aic,m4$aic,m5$aic,m6$aic,m7$aic,m8$aic,m9$aic,m10$aic,m11$aic,m12$aic,m13$aic,m14$aic,m15$aic,m16$aic, m17$aic,m18$aic,m19$aic, m20$aic,m21$aic,m22$aic)
+d <- data.frame(sigma2,loglik,AIC)
+d
+```
+
+### 2.4 Models with Both House Price Index and Unemployment Rate as Exogenous Variables
+#### Train the model not using seasonal differencing but using both exogenous variable
+```{r}
+m1 <- arima(log(bank_train), order = c(0,1,1), seasonal = list(order = c(1,0,2), period = 12), xreg = log(hpi_unemp_train))
+m2 <- arima(log(bank_train), order = c(0,1,0), seasonal = list(order = c(1,0,2), period = 12), xreg = log(hpi_unemp_train))
+m3 <- arima(log(bank_train), order = c(0,1,0), seasonal = list(order = c(1,0,2), period = 12), xreg = log(hpi_unemp_train))
+m4 <- arima(log(bank_train), order = c(0,1,0), seasonal = list(order = c(2,0,2), period = 12), xreg = log(hpi_unemp_train))
+m5 <- arima(log(bank_train), order = c(0,1,1), seasonal = list(order = c(1,0,1), period = 12), xreg = log(hpi_unemp_train))
+m6 <- arima(log(bank_train), order = c(0,1,0), seasonal = list(order = c(1,0,1), period = 12), xreg = log(hpi_unemp_train))
+m7 <- arima(log(bank_train), order = c(1,1,1), seasonal = list(order = c(1,0,1), period = 12), xreg = log(hpi_unemp_train))
+m8 <- arima(log(bank_train), order = c(1,1,1), seasonal = list(order = c(1,0,2), period = 12), xreg = log(hpi_unemp_train))
+m9 <- arima(log(bank_train), order = c(1,1,1), seasonal = list(order = c(2,0,2), period = 12), xreg = log(hpi_unemp_train))
+m10 <- arima(log(bank_train), order = c(1,1,2), seasonal = list(order = c(1,0,1), period = 12), xreg = log(hpi_unemp_train))
+m11 <- arima(log(bank_train), order = c(1,1,1), seasonal = list(order = c(1,0,2), period = 12), xreg = log(hpi_unemp_train))
+m12 <- arima(log(bank_train), order = c(1,1,0), seasonal = list(order = c(1,0,2), period = 12), xreg = log(hpi_unemp_train))
+m13 <- arima(log(bank_train), order = c(1,1,1), seasonal = list(order = c(1,0,1), period = 12), xreg = log(hpi_unemp_train))
+m14 <- arima(log(bank_train), order = c(1,1,0), seasonal = list(order = c(1,0,1), period = 12), xreg = log(hpi_unemp_train))
+m15 <- arima(log(bank_train), order = c(2,1,2), seasonal = list(order = c(1,0,1), period = 12), xreg = log(hpi_unemp_train))
+m16 <- arima(log(bank_train), order = c(2,1,2), seasonal = list(order = c(2,0,1), period = 12), xreg = log(hpi_unemp_train))
+m17 <- arima(log(bank_train), order = c(2,1,2), seasonal = list(order = c(2,0,2), period = 12), xreg = log(hpi_unemp_train))
+m18 <- arima(log(bank_train), order = c(2,1,0), seasonal = list(order = c(1,0,2), period = 12), xreg = log(hpi_unemp_train))
+m19 <- arima(log(bank_train), order = c(2,1,1), seasonal = list(order = c(1,0,1), period = 12), xreg = log(hpi_unemp_train))
+m20 <- arima(log(bank_train), order = c(2,1,0), seasonal = list(order = c(1,0,1), period = 12), xreg = log(hpi_unemp_train))
+m21 <- arima(log(bank_train), order = c(2,1,1), seasonal = list(order = c(1,0,2), period = 12), xreg = log(hpi_unemp_train))
+m22 <- arima(log(bank_train), order = c(2,1,2), seasonal = list(order = c(1,0,2), period = 12), xreg = log(hpi_unemp_train))
+sigma2<-c(m1$sigma2,m2$sigma2,m3$sigma2,m4$sigma2,m5$sigma2,m6$sigma2,m7$sigma2,m8$sigma2,m9$sigma2,m10$sigma2,m11$sigma2,m12$sigma2,m13$sigma2,m14$sigma2,m15$sigma2,m16$sigma2, m17$sigma2,m18$sigma2,m19$sigma2, m20$sigma2,m21$sigma2,m22$sigma2)
+loglik<-c(m1$loglik,m2$loglik,m3$loglik,m4$loglik,m5$loglik,m6$loglik,m7$loglik,m8$loglik,m9$loglik,m10$loglik,m11$loglik,m12$loglik,m13$loglik,m14$loglik,m15$loglik,m16$loglik, m17$loglik,m18$loglik,m19$loglik, m20$loglik,m21$loglik,m22$loglik)
+AIC<-c(m1$aic,m2$aic,m3$aic,m4$aic,m5$aic,m6$aic,m7$aic,m8$aic,m9$aic,m10$aic,m11$aic,m12$aic,m13$aic,m14$aic,m15$aic,m16$aic, m17$aic,m18$aic,m19$aic, m20$aic,m21$aic,m22$aic)
+d <- data.frame(sigma2,loglik,AIC)
+d
+```
+
+## 3. Forecast Bankcruptcy using House Price Index data 
+### The optimal combination of p, d, q, P, D, Q should be among (2,1,1,1,0,2), (2,1,2,1,0,2), and (2,1,2,2,0,2).  
+```{r}
+optimal1 <- arima(log(bank_train), order = c(2,1,1), seasonal = list(order = c(1,0,2), period = 12), xreg = log(hpi_train))
+optimal2 <- arima(log(bank_train), order = c(2,1,2), seasonal = list(order = c(1,0,2), period = 12), xreg = log(hpi_train))
+optimal3 <- arima(log(bank_train), order = c(2,1,2), seasonal = list(order = c(2,0,2), period = 12), xreg = log(hpi_train))
+```
+
+```{r}
+fcast1 <- forecast(optimal1, h=24, x=log(hpi_test)) 
+plot(fcast1, xlim = c(1987, 2013))
+
+fcast2 <- forecast(optimal2, h=24, x=log(hpi_test)) 
+plot(fcast2, xlim = c(1987, 2013))
+
+fcast3 <- forecast(optimal3, h=24, x=log(hpi_test)) 
+plot(fcast3, xlim = c(1987, 2013))
+```
+
+
