@@ -1,0 +1,47 @@
+---
+title: "R Notebook"
+output: html_notebook
+---
+
+## load in necessary libraries
+```{r}
+library(tseries)
+library(lawstat)
+library(forecast)
+library(hydroGOF)
+library(vars)
+```
+
+
+## Read in the dataset
+```{r}
+train <- read.csv('train.csv')[-1] # use -1 index to take out the month variable because
+                                   # we will recreate the month variable using ts() function
+test <- read.csv('test.csv')[-1]
+plot(train)
+cor(train)
+```
+Summary: from the plot and the correlation matrix, unemployment rate and house price index are most correlated to bankruptcy. However, population and house price index are are highly correlated with each other. This suggests that in the modeling part, we should use either of the external variable. For now, Let's focus on the bankcruptcy variable only.
+
+## Use only the bankruptcy variable and split the training set into a training set and a cross-validation set
+```{r}
+bank <- train[3]
+bank_train <- ts(bank[1:240, ], start = c(1987, 1), frequency = 12)
+bank_cross_val <- ts(bank[241:288, ], start = c(2007, 1), frequency = 12)
+```
+
+
+## plot the raw data as well as acf and pacf plots
+```{r}
+plot(bank_train)
+acf(bank_train, lag.max = 48)
+pacf(bank_train, lag.max = 48)
+```
+Summary: From the ACF plot and the PACF plot there is surely trend in the time series. There seems to be seasonality, but it's not significant.
+
+## use ndiff and ndiffs to automatically check the number of ordinary and seasonal differencing we should take
+```{r}
+ndiffs(bank_train, max.d = 3)
+nsdiffs(bank_train, m = 12, max.D = 2)
+```
+Summary: Seems that we dont need seasonal differencing, however it's good to try both.
