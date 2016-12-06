@@ -21,9 +21,9 @@ test <- read.csv('test.csv')[-1]
 plot(train)
 cor(train)
 ```
-Summary: from the plot and the correlation matrix, unemployment rate and house price index are most correlated to bankruptcy. However, population and house price index are are highly correlated with each other. This suggests that in the modeling part, we should use either of the external variable. For now, Let's focus on the bankruptcy variable only.
+Summary: from the plot and the correlation matrix, all three external variables correlated to bankruptcy. Population and house price index are are highly correlated with each other. This suggests that in the modeling part, we shouldn't use all three external variables. For now, Let's focus on the bankruptcy variable only. Additionally, population exhibits an upward trend that doesn't seem to contribute to explaining the variance in bankruptcy. Thus, we won't consider this variable in the modeling part.
 
-### Create training sets for each of the variable except for population, because population exhibits an upward trend that doesn't contribute to explaining the variance in bankruptcy
+### Create training sets for each of the variable except for population
 ```{r}
 bank <- train[3]
 hpi <- train[4]
@@ -61,7 +61,7 @@ ndiffs(bank_train, max.d = 3)
 nsdiffs(bank_train, m = 12, max.D = 2)
 adf.test(bank_train)
 ```
-Summary: Seems that we dont need seasonal differencing, however it's good to try both.
+Summary: Seems that we don't need seasonal differencing, however it's good to try both.
 
 ### Use both ordinary and seasonal differencing and plot ACF and PACF
 ```{r}
